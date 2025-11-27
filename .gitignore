@@ -1,0 +1,138 @@
+# Build outputs
+target/
+build/
+[Bb]in/
+[Oo]bj/
+out/
+dist/
+logs/
+*.log
+
+# Java / Spring Boot
+*.class
+*.jar
+*.war
+*.ear
+hs_err_pid*
+.recommenders/
+.mtj.tmp/
+.springBeans/
+.factorypath
+.project
+.classpath
+.settings/
+MANIFEST.MF
+.mvn/
+.mvnw
+.mvnw.cmd
+!/.mvn/wrapper/maven-wrapper.jar
+!/.mvn/wrapper/maven-wrapper.properties
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# .NET / ASP.NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+*.dll
+*.exe
+*.app
+*.appx
+*.apk
+*.so
+*.dylib
+*.bundle
+*.pdb
+*.mdb
+*.dbmdl
+*.bak
+*.backup
+*.orig
+*.tmp
+*.tmp.*
+*.cache
+*.nupkg
+*.snupkg
+packages/
+!packages/build/
+
+# Tests and coverage
+[Tt]est[Rr]esult*/
+*.coverage
+*.coveragexml
+*.codecoverage
+*.testsettings
+*.runsettings
+*.trx
+*.VisualState.xml
+.coverage/
+reports/
+coverage/
+
+# Environment and configs
+.env
+.env.*
+*.properties
+application-*.yml
+application-*.yaml
+!application.yml
+!application.yaml
+secrets.json
+appsettings.*.json
+!appsettings.json
+
+# IDEs and editors
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vscode/
+.history/
+*.code-workspace
+.angular/
+cache/
+
+
+
+# System files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+Icon?
+$RECYCLE.BIN/
+
+# Analysis and scanners
+.sonar/
+.scannerwork/
+.trivy/
+reports/
+*.sarif
+
+# Node modules
+node_modules/
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.*
+
+# Build and temp
+dist/
+tmp/
+coverage/
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/

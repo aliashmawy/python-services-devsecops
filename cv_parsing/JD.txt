@@ -1,0 +1,21 @@
+We are looking for a Data Scientist to analyze data, build predictive models, and provide insights that guide business decisions. You will work with large datasets, apply machine learning techniques, and communicate results clearly to both technical and non-technical teams.
+
+Responsibilities:
+
+Collect and clean data from various sources.
+
+Analyze trends and build predictive models.
+
+Visualize insights through reports and dashboards.
+
+Collaborate with teams to apply data-driven solutions.
+
+Requirements:
+
+Bachelor’s/Master’s in Data Science, Computer Science, or related field.
+
+Strong skills in Python/R, SQL, and machine learning.
+
+Experience with data visualization tools (Tableau, Power BI, etc.).
+
+Strong analytical and communication skills.

@@ -1,0 +1,30 @@
+[project]
+name = "chatbot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flask==3.0.3",
+    "gunicorn>=23.0.0",
+    "langchain>=1.0.5",
+    "langchain-core>=1.0.4",
+    "langchain-google-genai>=3.0.2",
+    "numpy>=2.2.6",
+    "pymongo==4.8.0",
+    "python-dotenv==1.0.1",
+    "sentence-transformers==3.2.1",
+    "torch>=2.0.0",
+    "transformers>=4.44.0",
+]
+
+# Force PyTorch CPU-only installation
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu" },
+]

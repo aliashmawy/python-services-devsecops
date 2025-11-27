@@ -1,0 +1,130 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
+    restart: unless-stopped
+    volumes:
+      - mongodb-data:/data/db
+      - mongodb-config:/data/configdb
+    networks:
+      - erp-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  doc_processing:
+    image: aliashmawy/doc_processing:15
+    container_name: doc-processing-app
+    restart: unless-stopped
+    ports:
+      - "7860:7860"
+    env_file:
+      - ./doc_processing/.env
+    networks:
+      - erp-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7860/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  chatbot:
+    image: aliashmawy/chatbot:34
+    container_name: chatbot-app
+    restart: unless-stopped
+    ports:
+      - "7870:7860"
+    env_file:
+      - ./chatbot/.env
+    networks:
+      - erp-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7860/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  hr_attrition:
+    image: aliashmawy/hr_attrition:15
+    container_name: hr-attrition-app
+    restart: unless-stopped
+    ports:
+      - "7880:7860"
+    env_file:
+      - ./hr_attrition/.env
+    networks:
+      - erp-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7860/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  tft_revenue_forecast:
+    image: aliashmawy/tft_revenue_forecast:21
+    container_name: tft-forecast-app
+    restart: unless-stopped
+    ports:
+      - "7890:7860"
+    networks:
+      - erp-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7860/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  prophet_forecast:
+    image: aliashmawy/prophet_forecast:15
+    container_name: prophet-forecast-app
+    restart: unless-stopped
+    ports:
+      - "7900:7860"
+    networks:
+      - erp-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7860/docs || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  cv_parsing:
+    image: aliashmawy/cv_parsing:42
+    container_name: cv-parsing-app
+    restart: unless-stopped
+    ports:
+      - "7910:7860"
+    env_file:
+      - ./cv_parsing/.env
+    networks:
+      - erp-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7860/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  mongodb-data:
+    driver: local
+  mongodb-config:
+    driver: local
+
+networks:
+  erp-network:
+    driver: bridge

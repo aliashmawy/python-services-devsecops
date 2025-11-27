@@ -1,0 +1,287 @@
+name: python-services CI/CD
+
+on:
+  push:
+    branches: [ai-team-work, main]
+    paths: 
+      - 'chatbot/**'
+      - 'doc_processing/**'
+      - 'hr_attrition/**'
+      - 'prophet_forecast/**'
+      - 'tft_revenue_forecast/**'
+      - 'cv_parsing/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      services:
+        description: 'Comma-separated list of services to deploy (e.g., chatbot,api,frontend)'
+        required: false
+        type: string
+
+jobs:
+  detect-changes:
+    name: Detect Changed Services
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.set-services.outputs.services }}
+      has_changes: ${{ steps.set-services.outputs.has_changes }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed service directories
+        id: changed-dirs
+        if: github.event_name != 'workflow_dispatch'
+        uses: tj-actions/changed-files@v44
+        with:
+          files: |
+            chatbot/**
+            doc_processing/**
+            hr_attrition/**
+            prophet_forecast/**
+            tft_revenue_forecast/**
+            cv_parsing/**
+          dir_names: true
+          dir_names_max_depth: 1
+
+      - name: Set services matrix
+        id: set-services
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.services }}" ]; then
+            # Manual trigger: convert comma-separated to JSON array
+            SERVICES=$(echo "${{ inputs.services }}" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$";""))')
+          else
+            # Auto-detect from changed directories
+            DIRS="${{ steps.changed-dirs.outputs.all_changed_files }}"
+            if [ -z "$DIRS" ]; then
+              SERVICES="[]"
+            else
+              SERVICES=$(echo "$DIRS" | jq -Rc 'split(" ") | map(select(length > 0))')
+            fi
+          fi
+          
+          # Check if we have any services
+          COUNT=$(echo "$SERVICES" | jq 'length')
+          if [ "$COUNT" -eq 0 ]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "services=[]" >> $GITHUB_OUTPUT
+            echo "No service changes detected"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "services=$SERVICES" >> $GITHUB_OUTPUT
+            echo "Detected services: $SERVICES"
+          fi
+
+  ci-cd-pipeline:
+    name: CI/CD Pipeline - ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+      fail-fast: false
+    permissions:
+      contents: write
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ============================================
+      # SECURITY SCANNING - GitLeaks
+      # ============================================
+      - name: Run GitLeaks Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          GITLEAKS_NOTIFY_USER_LIST: ${{ secrets.GITLEAKS_NOTIFY_USER_LIST }}
+          GITLEAKS_SCAN_PATH: "${{ matrix.service }}"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+
+      - name: Upload GitLeaks report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report-${{ matrix.service }}
+          path: results.sarif
+          if-no-files-found: warn
+
+      # ============================================
+      # STATIC APPLICATION SECURITY TESTING (SAST)
+      # ============================================
+      - name: Cache SonarQube packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar-${{ matrix.service }}
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: SonarQube Scan
+        continue-on-error: true
+        uses: sonarsource/sonarqube-scan-action@v2
+        with:
+          projectBaseDir: ${{ matrix.service }}
+          args: >
+            -Dsonar.projectKey=${{ matrix.service }}
+            -Dsonar.sources=.
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }}
+            -Dsonar.token=${{ secrets.SONAR_TOKEN }}
+            -Dsonar.verbose=true
+
+      - name: SonarQube Quality Gate check
+        uses: sonarsource/sonarqube-quality-gate-action@master
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        timeout-minutes: 5
+        with:
+          scanMetadataReportFile: "${{ matrix.service }}/.scannerwork/report-task.txt"
+
+      # ============================================
+      # DEPENDENCY VULNERABILITY SCANNING
+      # ============================================
+      - name: Cache Dependency-Check database
+        uses: actions/cache@v4
+        with:
+          path: ~/.dependency-check
+          key: depcheck-data-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            depcheck-data-${{ runner.os }}-
+
+      - name: Run OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@main
+        continue-on-error: true
+        with:
+          project: '${{ matrix.service }}'
+          path: './${{ matrix.service }}'
+          format: 'ALL'
+          out: 'reports-${{ matrix.service }}'
+          args: >
+            --failOnCVSS 8
+            --enableRetired
+            --enableExperimental
+
+      - name: Upload Dependency-Check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report-${{ matrix.service }}
+          path: ${{ github.workspace }}/reports-${{ matrix.service }}
+
+      - name: Upload Dependency-Check SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: reports-${{ matrix.service }}/dependency-check-report.sarif
+          category: dependency-check-${{ matrix.service }}
+
+      # ============================================
+      # BUILD & CONTAINER SCANNING
+      # ============================================
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+        env:
+          UV_PYTHON: '3.10'
+
+      - name: Sync Dependencies
+        working-directory: ./${{ matrix.service }}
+        run: uv lock
+
+      - name: Build Docker image
+        run: docker build -t ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ github.run_number }} ./${{ matrix.service }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: '${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ github.run_number }}'
+          format: 'sarif'
+          output: 'trivy-${{ matrix.service }}-results.sarif'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: 'trivy-${{ matrix.service }}-results.sarif'
+          category: trivy-${{ matrix.service }}
+
+      - name: Generate SBOM
+        uses: aquasecurity/trivy-action@0.28.0
+        if: always()
+        with:
+          image-ref: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ github.run_number }}
+          format: 'spdx-json'
+          output: 'sbom-${{ matrix.service }}.spdx.json'
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sbom-${{ matrix.service }}
+          path: sbom-${{ matrix.service }}.spdx.json
+          retention-days: 90
+
+      # ============================================
+      # PUSH TO REGISTRY
+      # ============================================
+      - name: Log in to DockerHub
+        if: always()
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: Push image to DockerHub
+        if: always()
+        run: docker push ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ github.run_number }}
+
+      # ============================================
+      # DEPLOYMENT
+      # ============================================
+      - name: Change image tag and Push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull origin ${{ github.ref_name }}
+          sed -i "s|${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:.*|${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{github.run_number}}|g" docker-compose.yml
+          git add docker-compose.yml
+          git diff-index --quiet HEAD || git commit -m "Update ${{ matrix.service }} tag to ${{ github.run_number }} in docker-compose.yml"
+          git push
+
+      - name: Make deploy script executable
+        run: chmod +x scripts/deploy.sh
+
+      - name: Deploy new app version
+        env:
+          SERVICE_NAME: ${{ matrix.service }}
+          github_run_number: ${{ github.run_number }}
+          EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          REPO_URL: https://github.com/${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SERVICE_ENV_FILE: ${{ secrets[format('{0}_ENV', matrix.service)] }}
+        run: scripts/deploy.sh
+
+      # ============================================
+      # DYNAMIC APPLICATION SECURITY TESTING (DAST)
+      # ============================================
+      - name: ZAP Scan
+        uses: zaproxy/action-full-scan@v0.13.0
+        with:
+          docker_name: 'ghcr.io/zaproxy/zaproxy:stable'
+          target: 'http://${{ secrets.EC2_HOST }}/ai/${{ matrix.service }}/'
+          artifact_name: 'zap-report-${{ matrix.service }}'
+          cmd_options: '-a'
+          allow_issue_writing: false
